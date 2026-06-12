@@ -1,16 +1,25 @@
-# React + Vite
+# Para a Minha Dragoa ♡
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Página-surpresa de Dia dos Namorados feita com React + Vite + Framer Motion.
 
-Currently, two official plugins are available:
+## Como adicionar as fotos
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Coloque os arquivos na pasta `public/` com exatamente estes nomes:
 
-## React Compiler
+| Arquivo               | Onde aparece                                      |
+| --------------------- | ------------------------------------------------- |
+| `public/collage.jpg`  | Capa da playlist (hero, reflexo e barra inferior) |
+| `public/photo1.jpg`   | Polaroid da esquerda — "Sempre juntos ❤"          |
+| `public/photo2.jpg`   | Polaroid central (destaque) — "Minha dragoa"      |
+| `public/photo3.jpg`   | Polaroid da direita — "Para sempre"               |
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Enquanto os arquivos não existirem, a página usa imagens de fallback
+(Unsplash e `public/cover.svg`) automaticamente.
 
-## Expanding the ESLint configuration
+## Rodando
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+npm ci --legacy-peer-deps
+npm run dev      # desenvolvimento
+npm run build    # produção
+```

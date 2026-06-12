@@ -159,6 +159,108 @@ function useSpotifyPlayer() {
   return { ready, trackIndex, playing, position, duration, playTrack, next, prev, toggle, begin, seek };
 }
 
+/* ─── FUNDO SHADER WEBGL (brilho vinho + faíscas douradas) ── */
+const SHADER_VS = `attribute vec2 a_position;
+varying vec2 v_texCoord;
+void main() {
+  v_texCoord = a_position * 0.5 + 0.5;
+  gl_Position = vec4(a_position, 0.0, 1.0);
+}`;
+
+const SHADER_FS = `precision highp float;
+varying vec2 v_texCoord;
+uniform float u_time;
+uniform vec2 u_resolution;
+
+float random(vec2 st) {
+    return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+}
+
+void main() {
+    vec2 uv = v_texCoord;
+
+    // Base dark gradient
+    vec3 color = vec3(0.02, 0.0, 0.0);
+
+    // Subtle wine red glow from bottom
+    float glow = 1.0 - distance(uv, vec2(0.5, -0.2));
+    color += vec3(0.36, 0.04, 0.14) * pow(max(0.0, glow), 3.0);
+
+    // Cinematic film grain
+    float grain = random(uv + fract(u_time * 0.01)) * 0.05;
+    color += grain;
+
+    // Soft floating gold sparks
+    for(float i = 0.0; i < 8.0; i++) {
+        float t = u_time * (0.2 + i * 0.1);
+        vec2 p = vec2(
+            0.5 + 0.3 * sin(t + i),
+            0.2 + 0.6 * fract(0.2 * t + i * 0.5)
+        );
+        float size = 0.005 + 0.01 * sin(u_time + i);
+        float dist = distance(uv, p);
+        float spark = smoothstep(size, 0.0, dist);
+        color += vec3(0.79, 0.66, 0.3) * spark * 0.5;
+    }
+
+    gl_FragColor = vec4(color, 1.0);
+}`;
+
+function ShaderBackground() {
+  const ref = useRef(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if (!gl) return;
+
+    const syncSize = () => {
+      const w = canvas.clientWidth || window.innerWidth;
+      const h = canvas.clientHeight || window.innerHeight;
+      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    };
+    syncSize();
+    window.addEventListener('resize', syncSize);
+
+    const compile = (type, src) => {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      return s;
+    };
+    const prog = gl.createProgram();
+    gl.attachShader(prog, compile(gl.VERTEX_SHADER, SHADER_VS));
+    gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, SHADER_FS));
+    gl.linkProgram(prog);
+    gl.useProgram(prog);
+
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    const pos = gl.getAttribLocation(prog, 'a_position');
+    gl.enableVertexAttribArray(pos);
+    gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
+    const uTime = gl.getUniformLocation(prog, 'u_time');
+    const uRes = gl.getUniformLocation(prog, 'u_resolution');
+
+    let raf;
+    const render = (t) => {
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      if (uTime) gl.uniform1f(uTime, t * 0.001);
+      if (uRes) gl.uniform2f(uRes, canvas.width, canvas.height);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      raf = requestAnimationFrame(render);
+    };
+    raf = requestAnimationFrame(render);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', syncSize);
+      try { gl.getExtension('WEBGL_lose_context')?.loseContext(); } catch { /* noop */ }
+    };
+  }, []);
+  return <canvas ref={ref} style={{ position: 'fixed', inset: 0, width: '100%', height: '100%', display: 'block', pointerEvents: 'none' }} />;
+}
+
 /* ─── CANVAS PARTICLES: corações + faíscas douradas com profundidade ── */
 function Particles({ count = 22 }) {
   const ref = useRef(null);
@@ -319,6 +421,7 @@ function PhaseCinema({ onEnd }) {
       style={{ background: '#050005', zIndex: 100 }}
       exit={{ opacity: 0, transition: { duration: 1.2 } }}
     >
+      <ShaderBackground />
       <Particles count={14} />
       {/* luz de vela tremeluzindo */}
       <motion.div
@@ -416,9 +519,10 @@ function PhaseEnvelope({ onOpen }) {
   return (
     <motion.div
       className="fixed inset-0 flex flex-col items-center justify-center"
-      style={{ background: 'radial-gradient(ellipse at 50% 60%, #120008 0%, #050005 100%)', zIndex: 50 }}
+      style={{ background: '#050000', zIndex: 50 }}
       exit={{ opacity: 0, filter: 'blur(20px)', transition: { duration: 1 } }}
     >
+      <ShaderBackground />
       <Particles count={18} />
 
       {/* Hint */}
@@ -447,12 +551,20 @@ function PhaseEnvelope({ onOpen }) {
         uma surpresa para você...
       </motion.p>
 
-      {/* 3D Envelope wrapper */}
-      <div
+      {/* 3D Envelope wrapper — flutua como na referência */}
+      <motion.div
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
+        animate={{ y: [0, -14, 0], rotate: [-1.2, 1.2, -1.2] }}
+        transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
         style={{ width: 380, height: 260, maxWidth: '88vw', perspective: 900, zIndex: 10, position: 'relative' }}
       >
+        {/* luz dourada vinda de cima à direita */}
+        <div style={{
+          position: 'absolute', top: -90, right: -90, width: 240, height: 240, borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(201,168,76,0.28), transparent 65%)',
+          filter: 'blur(20px)', pointerEvents: 'none',
+        }} />
         {/* brilho dourado que cresce conforme o puxão */}
         <motion.div style={{
           position: 'absolute', inset: -60, borderRadius: '50%',
@@ -473,50 +585,51 @@ function PhaseEnvelope({ onOpen }) {
             style={{
               position: 'absolute', left: '8%', right: '8%', bottom: '6%', height: '88%',
               y: letterY, scale: letterScale,
-              background: 'linear-gradient(160deg, #fdf8f2, #f0e8da)',
+              background: 'linear-gradient(160deg, #fffdf8, #f6efe2)',
               borderRadius: 3,
               display: 'flex', flexDirection: 'column',
               alignItems: 'center', justifyContent: 'center', gap: 10,
-              boxShadow: '0 -10px 40px rgba(0,0,0,0.35)',
+              boxShadow: '0 -12px 36px rgba(0,0,0,0.3), 0 0 0 1px rgba(201,168,76,0.25)',
               padding: '20px 24px',
             }}
           >
             <div style={{ width: '60%', height: 1, background: 'linear-gradient(90deg, transparent, #c9a84c, transparent)' }} />
             <p style={{
               fontFamily: 'Dancing Script, cursive',
-              fontSize: 28, color: '#3a1020', lineHeight: 1.3, textAlign: 'center'
+              fontSize: 28, color: '#5c0a23', lineHeight: 1.3, textAlign: 'center'
             }}>
               Para Helena,<br />com todo meu amor
             </p>
             <div style={{ width: '40%', height: 1, background: 'linear-gradient(90deg, transparent, #c9a84c80, transparent)' }} />
           </motion.div>
 
-          {/* ── CORPO DO ENVELOPE (cobre a carta) ── */}
+          {/* ── CORPO DO ENVELOPE (papel creme, cobre a carta) ── */}
           <div style={{
             position: 'absolute', inset: 0,
-            background: 'linear-gradient(160deg, #1e0510 0%, #130309 60%, #0e0207 100%)',
+            background: 'linear-gradient(160deg, #f7f1e6 0%, #ece2d0 60%, #e0d4bd 100%)',
             borderRadius: 6,
-            border: '1px solid rgba(201,168,76,0.2)',
-            boxShadow: '0 40px 80px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.05)',
+            border: '1px solid rgba(201,168,76,0.5)',
+            boxShadow: '0 40px 80px rgba(0,0,0,0.6), 0 0 50px rgba(201,168,76,0.1), inset 0 1px 0 rgba(255,255,255,0.6)',
             overflow: 'hidden',
           }}>
             {/* Bottom V fold */}
             <div style={{
               position: 'absolute', bottom: 0, left: 0, right: 0, height: '55%',
-              background: 'linear-gradient(180deg, #1a0510, #0e0308)',
+              background: 'linear-gradient(180deg, #f2ebdb, #e4d8c1)',
               clipPath: 'polygon(0 100%, 50% 0, 100% 100%)',
-              borderTop: '1px solid rgba(201,168,76,0.12)',
+              borderTop: '1px solid rgba(154,120,50,0.25)',
+              filter: 'drop-shadow(0 -2px 3px rgba(92,10,35,0.08))',
             }} />
             {/* Left fold */}
             <div style={{
               position: 'absolute', left: 0, top: 0, bottom: 0, width: '50%',
-              background: 'rgba(255,255,255,0.015)',
+              background: 'rgba(255,255,255,0.35)',
               clipPath: 'polygon(0 0, 100% 50%, 0 100%)',
             }} />
             {/* Right fold */}
             <div style={{
               position: 'absolute', right: 0, top: 0, bottom: 0, width: '50%',
-              background: 'rgba(0,0,0,0.1)',
+              background: 'rgba(92,10,35,0.05)',
               clipPath: 'polygon(100% 0, 0 50%, 100% 100%)',
             }} />
           </div>
@@ -533,32 +646,34 @@ function PhaseEnvelope({ onOpen }) {
           >
             <div style={{
               position: 'absolute', inset: 0,
-              background: 'linear-gradient(175deg, #2a0814 0%, #1a0510 50%, #120309 100%)',
+              background: 'linear-gradient(175deg, #f4ecdc 0%, #eadfc9 50%, #ddd0b5 100%)',
               clipPath: 'polygon(0 0, 100% 0, 50% 100%)',
-              borderBottom: '1px solid rgba(201,168,76,0.15)',
+              borderBottom: '1px solid rgba(154,120,50,0.3)',
               backfaceVisibility: 'hidden',
+              filter: 'drop-shadow(0 3px 4px rgba(92,10,35,0.12))',
             }} />
+            {/* forro interno em vinho, revelado quando a aba abre */}
             <div style={{
               position: 'absolute', inset: 0,
-              background: 'linear-gradient(175deg, #f5f0ea 0%, #ede0d0 100%)',
+              background: 'linear-gradient(175deg, #5c0a23 0%, #3a0615 100%)',
               clipPath: 'polygon(0 0, 100% 0, 50% 100%)',
               backfaceVisibility: 'hidden',
               transform: 'rotateX(180deg)',
             }} />
           </motion.div>
 
-          {/* ── LACRE DOURADO (se desfaz conforme você puxa) ── */}
+          {/* ── LACRE DE CERA VINHO (se desfaz conforme você puxa) ── */}
           <motion.div
             style={{
               position: 'absolute', top: '38%', left: '50%',
               marginLeft: -26, marginTop: -26,
               scale: sealScale, opacity: sealOpacity,
               width: 52, height: 52,
-              background: 'radial-gradient(circle at 35% 35%, #f0d080, #c9a84c 50%, #9a7832)',
-              borderRadius: '50%',
+              background: 'radial-gradient(circle at 35% 35%, #8a1838, #5c0a23 55%, #3a0615)',
+              borderRadius: '46% 54% 52% 48% / 52% 48% 54% 46%',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 22, zIndex: 6, color: '#3a1020',
-              boxShadow: '0 4px 16px rgba(0,0,0,0.5), 0 0 20px rgba(201,168,76,0.3), inset 0 1px 2px rgba(255,255,255,0.3)',
+              fontSize: 22, zIndex: 6, color: '#c9a84c',
+              boxShadow: '0 4px 14px rgba(58,6,21,0.55), 0 0 22px rgba(92,10,35,0.45), inset 0 2px 3px rgba(255,255,255,0.18), inset 0 -2px 4px rgba(0,0,0,0.35)',
             }}
           >
             ♡
@@ -581,7 +696,7 @@ function PhaseEnvelope({ onOpen }) {
             whileDrag={{ cursor: 'grabbing' }}
           />
         </motion.div>
-      </div>
+      </motion.div>
     </motion.div>
   );
 }
