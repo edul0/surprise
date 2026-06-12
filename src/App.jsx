@@ -34,10 +34,7 @@ const LYRICS = [
   'minha eterna dragoa. ❤',
 ];
 
-const COVER_FALLBACKS = [
-  'https://images.unsplash.com/photo-1518199266791-5375a83190b7?auto=format&fit=crop&q=80&w=600',
-  '/cover.svg',
-];
+const COVER_FALLBACKS = ['/cover.svg'];
 
 function fmt(s) {
   if (!s || isNaN(s) || s < 0) return '0:00';
@@ -487,8 +484,7 @@ function PhaseEnvelope({ onOpen }) {
   const sealScale = useTransform(pull, [0, 0.45], [1, 0]);
   const sealOpacity = useTransform(pull, [0, 0.42], [1, 0]);
   const flapRot = useTransform(pull, [0.08, 0.55], [0, -180]);
-  const letterY = useTransform(pull, [0, 1], [0, -205]);
-  const letterScale = useTransform(pull, [0, 1], [0.96, 1.02]);
+  const letterY = useTransform(pull, [0.12, 1], [0, -195]);
   const glowOpacity = useTransform(pull, [0, 1], [0.12, 0.5]);
 
   const handleMouseMove = (e) => {
@@ -531,9 +527,9 @@ function PhaseEnvelope({ onOpen }) {
         animate={{ opacity: done ? 0 : 1 }}
         transition={{ delay: 0.8, duration: 1 }}
         style={{
-          position: 'absolute', top: '24%',
+          position: 'absolute', top: '11%',
           fontSize: 11, letterSpacing: '0.35em', textTransform: 'uppercase',
-          color: '#6b5c60', fontFamily: 'Inter', fontWeight: 300, zIndex: 10, textAlign: 'center',
+          color: '#8a7070', fontFamily: 'Inter', fontWeight: 300, zIndex: 10, textAlign: 'center',
         }}
       >
         puxe a carta para cima ♡
@@ -543,7 +539,7 @@ function PhaseEnvelope({ onOpen }) {
         animate={{ opacity: done ? 1 : 0 }}
         transition={{ duration: 0.8 }}
         style={{
-          position: 'absolute', top: '24%',
+          position: 'absolute', top: '11%',
           fontSize: 11, letterSpacing: '0.35em', textTransform: 'uppercase',
           color: '#c9a84c', fontFamily: 'Inter', fontWeight: 300, zIndex: 10,
         }}
@@ -580,30 +576,7 @@ function PhaseEnvelope({ onOpen }) {
             position: 'relative',
           }}
         >
-          {/* ── A CARTA (atrás do corpo; emerge ao puxar) ── */}
-          <motion.div
-            style={{
-              position: 'absolute', left: '8%', right: '8%', bottom: '6%', height: '88%',
-              y: letterY, scale: letterScale,
-              background: 'linear-gradient(160deg, #fffdf8, #f6efe2)',
-              borderRadius: 3,
-              display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center', gap: 10,
-              boxShadow: '0 -12px 36px rgba(0,0,0,0.3), 0 0 0 1px rgba(201,168,76,0.25)',
-              padding: '20px 24px',
-            }}
-          >
-            <div style={{ width: '60%', height: 1, background: 'linear-gradient(90deg, transparent, #c9a84c, transparent)' }} />
-            <p style={{
-              fontFamily: 'Dancing Script, cursive',
-              fontSize: 28, color: '#5c0a23', lineHeight: 1.3, textAlign: 'center'
-            }}>
-              Para Helena,<br />com todo meu amor
-            </p>
-            <div style={{ width: '40%', height: 1, background: 'linear-gradient(90deg, transparent, #c9a84c80, transparent)' }} />
-          </motion.div>
-
-          {/* ── CORPO DO ENVELOPE (papel creme, cobre a carta) ── */}
+          {/* ── CORPO DO ENVELOPE (papel creme) ── */}
           <div style={{
             position: 'absolute', inset: 0,
             background: 'linear-gradient(160deg, #f7f1e6 0%, #ece2d0 60%, #e0d4bd 100%)',
@@ -632,6 +605,25 @@ function PhaseEnvelope({ onOpen }) {
               background: 'rgba(92,10,35,0.05)',
               clipPath: 'polygon(100% 0, 0 50%, 100% 100%)',
             }} />
+            {/* Destinatária em caligrafia */}
+            <p style={{
+              position: 'absolute', bottom: 18, left: 0, right: 0, textAlign: 'center',
+              fontFamily: 'Dancing Script, cursive', fontSize: 24, color: '#5c0a23',
+              opacity: 0.85, pointerEvents: 'none',
+            }}>
+              Helena Narloch ♡
+            </p>
+            {/* Selo postal dourado */}
+            <div style={{
+              position: 'absolute', top: 12, right: 14, width: 38, height: 46,
+              border: '1.5px dashed rgba(154,120,50,0.55)', borderRadius: 2,
+              background: 'linear-gradient(160deg, rgba(201,168,76,0.18), rgba(201,168,76,0.05))',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 16, color: '#9a7832', transform: 'rotate(3deg)',
+              pointerEvents: 'none',
+            }}>
+              ♥
+            </div>
           </div>
 
           {/* ── ABA DO ENVELOPE (abre conforme o puxão) ── */}
@@ -678,6 +670,37 @@ function PhaseEnvelope({ onOpen }) {
           >
             ♡
           </motion.div>
+
+          {/* ── JANELA DE REVELAÇÃO: a carta emerge por aqui ao puxar ── */}
+          <div style={{
+            position: 'absolute', left: '8%', right: '8%', bottom: '99%', height: 300,
+            overflow: 'hidden', zIndex: 8, pointerEvents: 'none',
+          }}>
+            <motion.div
+              style={{
+                position: 'absolute', left: 0, right: 0, top: '100%', height: 195,
+                y: letterY,
+                background: 'linear-gradient(160deg, #fffdf8, #f6efe2)',
+                borderRadius: 3,
+                display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center', gap: 9,
+                boxShadow: '0 -12px 36px rgba(0,0,0,0.35), 0 0 0 1px rgba(201,168,76,0.3)',
+                padding: '18px 22px',
+              }}
+            >
+              <div style={{ width: '60%', height: 1, background: 'linear-gradient(90deg, transparent, #c9a84c, transparent)' }} />
+              <p style={{
+                fontFamily: 'Dancing Script, cursive',
+                fontSize: 26, color: '#5c0a23', lineHeight: 1.3, textAlign: 'center'
+              }}>
+                Para Helena,<br />com todo meu amor
+              </p>
+              <div style={{ width: '40%', height: 1, background: 'linear-gradient(90deg, transparent, #c9a84c80, transparent)' }} />
+              <p style={{ fontSize: 9, letterSpacing: '0.32em', color: '#9a7832', fontFamily: 'Inter', fontWeight: 400, textTransform: 'uppercase' }}>
+                12 · 06 · 2026
+              </p>
+            </motion.div>
+          </div>
 
           {/* ── CAMADA DE ARRASTO (invisível, tensão de elástico) ── */}
           <motion.div
@@ -838,9 +861,9 @@ function PhaseInvitation() {
 /* ─── PHASE 3: POLAROIDS COM REVELAÇÃO FOTOGRÁFICA ───────── */
 function PhaseGallery() {
   const items = [
-    { caption: 'Sempre juntos ❤', rotate: -5, x: '-38%', delay: 0.1, scale: 0.85, src: '/photo1.jpg', fb: ['https://images.unsplash.com/photo-1518199266791-5375a83190b7?auto=format&fit=crop&q=80&w=400', '/cover.svg'] },
-    { caption: 'Minha dragoa',     rotate: 1,  x:   '0%', delay: 0.5, scale: 1,    src: '/photo2.jpg', fb: ['https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?auto=format&fit=crop&q=80&w=400', '/cover.svg'] },
-    { caption: 'Para sempre',      rotate: 6,  x:  '38%', delay: 0.9, scale: 0.85, src: '/photo3.jpg', fb: ['https://images.unsplash.com/photo-1474552226712-ac0f0961a954?auto=format&fit=crop&q=80&w=400', '/cover.svg'] },
+    { caption: 'Sempre juntos ❤', rotate: -5, x: '-38%', delay: 0.1, scale: 0.85, src: '/photo1.jpg', fb: ['/polaroid1.svg'] },
+    { caption: 'Minha dragoa',     rotate: 1,  x:   '0%', delay: 0.5, scale: 1,    src: '/photo2.jpg', fb: ['/polaroid2.svg'] },
+    { caption: 'Para sempre',      rotate: 6,  x:  '38%', delay: 0.9, scale: 0.85, src: '/photo3.jpg', fb: ['/polaroid3.svg'] },
   ];
 
   return (

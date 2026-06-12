@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+  <defs>
+    <radialGradient id="bg1" cx="40%" cy="32%" r="95%">
+      <stop offset="0%" stop-color="#5c0a23"/>
+      <stop offset="60%" stop-color="#2a0512"/>
+      <stop offset="100%" stop-color="#120308"/>
+    </radialGradient>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f0d080"/>
+      <stop offset="100%" stop-color="#c9a84c"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="400" fill="url(#bg1)"/>
+
+  <!-- dois corações entrelaçados -->
+  <path d="M168 258 C 112 214 84 178 84 144 A 42 42 0 0 1 168 128 A 42 42 0 0 1 252 144 C 252 178 224 214 168 258 Z"
+        fill="none" stroke="url(#g1)" stroke-width="3"/>
+  <path d="M236 282 C 184 242 158 208 158 177 A 39 39 0 0 1 236 162 A 39 39 0 0 1 314 177 C 314 208 288 242 236 282 Z"
+        fill="rgba(201,65,90,0.28)" stroke="#c9415a" stroke-width="2.5"/>
+
+  <!-- faíscas -->
+  <path d="M92 86 l4 10 10 4 -10 4 -4 10 -4 -10 -10 -4 10 -4 Z" fill="#e8c96a" opacity="0.9"/>
+  <path d="M318 96 l3 8 8 3 -8 3 -3 8 -3 -8 -8 -3 8 -3 Z" fill="#e8c96a" opacity="0.7"/>
+  <path d="M330 312 l3 8 8 3 -8 3 -3 8 -3 -8 -8 -3 8 -3 Z" fill="#e8c96a" opacity="0.6"/>
+  <circle cx="70" cy="320" r="3" fill="#e8c96a" opacity="0.5"/>
+  <circle cx="282" cy="58" r="2.5" fill="#c9415a" opacity="0.6"/>
+
+  <text x="200" y="352" text-anchor="middle" font-family="Georgia, serif" font-style="italic"
+        font-size="22" fill="#f5f0ea" opacity="0.9">você &amp; eu</text>
+</svg>
