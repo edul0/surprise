@@ -177,30 +177,31 @@ void main() {
     vec2 uv = v_texCoord;
 
     // Base dark gradient
-    vec3 color = vec3(0.02, 0.0, 0.0);
+    vec3 color = vec3(0.015, 0.0, 0.005);
 
     // Subtle wine red glow from bottom
     float glow = 1.0 - distance(uv, vec2(0.5, -0.2));
-    color += vec3(0.36, 0.04, 0.14) * pow(max(0.0, glow), 3.0);
+    color += vec3(0.20, 0.025, 0.08) * pow(max(0.0, glow), 4.0);
 
     // Cinematic film grain
-    float grain = random(uv + fract(u_time * 0.01)) * 0.05;
+    float grain = random(uv + fract(u_time * 0.01)) * 0.022;
     color += grain;
 
-    // Soft floating gold sparks
+    // Soft floating gold sparks (tamanho nunca negativo — senão o
+    // smoothstep inverte e estoura a tela em branco)
     for(float i = 0.0; i < 8.0; i++) {
         float t = u_time * (0.2 + i * 0.1);
         vec2 p = vec2(
             0.5 + 0.3 * sin(t + i),
             0.2 + 0.6 * fract(0.2 * t + i * 0.5)
         );
-        float size = 0.005 + 0.01 * sin(u_time + i);
+        float size = 0.0035 + 0.0035 * (0.5 + 0.5 * sin(u_time + i));
         float dist = distance(uv, p);
         float spark = smoothstep(size, 0.0, dist);
-        color += vec3(0.79, 0.66, 0.3) * spark * 0.5;
+        color += vec3(0.79, 0.66, 0.3) * spark * 0.22;
     }
 
-    gl_FragColor = vec4(color, 1.0);
+    gl_FragColor = vec4(min(color, vec3(1.0)), 1.0);
 }`;
 
 function ShaderBackground() {
@@ -470,6 +471,7 @@ function PhaseCinema({ onEnd }) {
 /* ─── PHASE 0: ENVELOPE — puxe a carta, o lacre se desfaz ── */
 function PhaseEnvelope({ onOpen }) {
   const [done, setDone] = useState(false);
+  const [showCard, setShowCard] = useState(false);
   const doneRef = useRef(false);
 
   // tilt 3D com o mouse
@@ -499,7 +501,8 @@ function PhaseEnvelope({ onOpen }) {
     doneRef.current = true;
     setDone(true);
     animate(dragY, -200, { duration: 0.9, ease: [0.16, 1, 0.3, 1] });
-    setTimeout(onOpen, 1400);
+    setTimeout(() => setShowCard(true), 950); // a carta voa para o centro em 3D
+    setTimeout(onOpen, 4300);
   }, [dragY, onOpen]);
 
   const onDragEnd = () => {
@@ -683,6 +686,8 @@ function PhaseEnvelope({ onOpen }) {
               style={{
                 position: 'absolute', left: 0, right: 0, top: '100%', height: 195,
                 y: letterY,
+                opacity: showCard ? 0 : 1,
+                transition: 'opacity 0.35s',
                 background: 'linear-gradient(160deg, #fffdf8, #f6efe2)',
                 borderRadius: 3,
                 display: 'flex', flexDirection: 'column',
@@ -723,6 +728,64 @@ function PhaseEnvelope({ onOpen }) {
           />
         </motion.div>
       </motion.div>
+
+      {/* ── CARTA EM 3D: voa para o centro e flutua no espaço ── */}
+      <AnimatePresence>
+        {showCard && (
+          <motion.div
+            className="fixed inset-0 flex items-center justify-center"
+            style={{ zIndex: 30, perspective: 1100, pointerEvents: 'none' }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.35 }}
+          >
+            <motion.div
+              initial={{ y: 190, scale: 0.5, rotateX: 50, opacity: 0 }}
+              animate={{ y: 0, scale: 1, rotateX: 0, opacity: 1 }}
+              transition={{ duration: 1.15, ease: [0.16, 1, 0.3, 1] }}
+              style={{ transformStyle: 'preserve-3d' }}
+            >
+              <motion.div
+                animate={{ rotateY: [-9, 9, -9], rotateX: [5, -5, 5], y: [0, -12, 0] }}
+                transition={{ duration: 5.5, repeat: Infinity, ease: 'easeInOut' }}
+                style={{
+                  width: 340, maxWidth: '85vw',
+                  borderRadius: 6, padding: '40px 30px',
+                  position: 'relative', overflow: 'hidden',
+                  background: 'linear-gradient(160deg, #fffdf8, #f3ead9)',
+                  boxShadow: '0 50px 110px rgba(0,0,0,0.65), 0 0 80px rgba(201,168,76,0.2), 0 0 0 1px rgba(201,168,76,0.4)',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center',
+                  gap: 13, textAlign: 'center',
+                  transformStyle: 'preserve-3d',
+                }}
+              >
+                {/* brilho varrendo o papel */}
+                <motion.div
+                  animate={{ x: ['-140%', '140%'] }}
+                  transition={{ duration: 2.4, repeat: Infinity, repeatDelay: 1.4, ease: 'easeInOut' }}
+                  style={{
+                    position: 'absolute', top: 0, bottom: 0, left: 0, width: '65%',
+                    background: 'linear-gradient(105deg, transparent, rgba(255,255,255,0.55), transparent)',
+                    pointerEvents: 'none',
+                  }}
+                />
+                <div style={{ width: '70%', height: 1, background: 'linear-gradient(90deg, transparent, #c9a84c, transparent)' }} />
+                <p style={{ fontFamily: 'Dancing Script, cursive', fontSize: 36, color: '#5c0a23', lineHeight: 1.2 }}>
+                  Para Helena,
+                </p>
+                <p style={{ fontFamily: 'Cormorant Garamond', fontStyle: 'italic', fontSize: 19, color: '#7a4634', lineHeight: 1.5 }}>
+                  com todo o meu amor
+                </p>
+                <span style={{ fontSize: 20, color: '#c9415a' }}>♡</span>
+                <div style={{ width: '50%', height: 1, background: 'linear-gradient(90deg, transparent, #c9a84c80, transparent)' }} />
+                <p style={{ fontSize: 10, letterSpacing: '0.35em', color: '#9a7832', fontFamily: 'Inter', fontWeight: 400, textTransform: 'uppercase' }}>
+                  12 · 06 · 2026
+                </p>
+              </motion.div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
