@@ -238,7 +238,7 @@ function PhaseEnvelope({ onOpen }) {
         <motion.div
           style={{
             width: '100%', height: '100%',
-            rotateX, rotateY,
+            rotateX: rotX, rotateY: rotY,
             transformStyle: 'preserve-3d',
             position: 'relative',
           }}
@@ -884,7 +884,7 @@ export default function App() {
                 onClick={onSeek}
                 style={{ flex: 1, height: 3, background: 'rgba(255,255,255,0.1)', borderRadius: 8, cursor: 'pointer', position: 'relative', minWidth: 0 }}
               >
-                <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${pct || 0}%`, background: 'linear-gradient(90deg, #c9415a, #c9a84c)', borderRadius: 8, transition: 'width 0.1s linear' }} />
+                <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${(currentTime / duration) * 100 || 0}%`, background: 'linear-gradient(90deg, #c9415a, #c9a84c)', borderRadius: 8, transition: 'width 0.1s linear' }} />
               </div>
               <span style={{ fontSize: 10, color: '#6b5c60', flexShrink: 0 }}>{fmt(duration)}</span>
             </div>
