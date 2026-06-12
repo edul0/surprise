@@ -630,7 +630,7 @@ function PhaseEnvelope({ onOpen }) {
           <motion.div
             style={{
               position: 'absolute', top: 0, left: 0, right: 0, height: '52%',
-              rotateX: flapRot,
+              rotateX: flapRot, z: 3,
               transformOrigin: 'top',
               transformStyle: 'preserve-3d',
               zIndex: 5,
@@ -659,7 +659,7 @@ function PhaseEnvelope({ onOpen }) {
             style={{
               position: 'absolute', top: '38%', left: '50%',
               marginLeft: -26, marginTop: -26,
-              scale: sealScale, opacity: sealOpacity,
+              scale: sealScale, opacity: sealOpacity, z: 6,
               width: 52, height: 52,
               background: 'radial-gradient(circle at 35% 35%, #8a1838, #5c0a23 55%, #3a0615)',
               borderRadius: '46% 54% 52% 48% / 52% 48% 54% 46%',
@@ -671,10 +671,13 @@ function PhaseEnvelope({ onOpen }) {
             ♡
           </motion.div>
 
-          {/* ── JANELA DE REVELAÇÃO: a carta emerge por aqui ao puxar ── */}
+          {/* ── JANELA DE REVELAÇÃO: a carta emerge por aqui ao puxar ──
+               translateZ garante que a carta pinte na frente da aba aberta
+               em qualquer navegador (z-index é ignorado em preserve-3d) */}
           <div style={{
             position: 'absolute', left: '8%', right: '8%', bottom: '99%', height: 300,
             overflow: 'hidden', zIndex: 8, pointerEvents: 'none',
+            transform: 'translateZ(48px)',
           }}>
             <motion.div
               style={{
@@ -711,7 +714,7 @@ function PhaseEnvelope({ onOpen }) {
             onTap={finish}
             style={{
               position: 'absolute', inset: '-12% -6%',
-              y: dragY,
+              y: dragY, z: 90,
               zIndex: 20,
               cursor: done ? 'default' : 'grab',
               touchAction: 'none',
