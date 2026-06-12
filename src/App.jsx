@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { motion, AnimatePresence, useMotionValue, useTransform, useSpring } from 'framer-motion';
-import YouTube from 'react-youtube';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { motion, AnimatePresence, useMotionValue, useTransform, useSpring, animate } from 'framer-motion';
 import './index.css';
 
 /* ─── DATA ─────────────────────────────────────────────── */
@@ -35,32 +34,161 @@ const LYRICS = [
   'minha eterna dragoa. ❤',
 ];
 
+const COVER_FALLBACKS = [
+  'https://images.unsplash.com/photo-1518199266791-5375a83190b7?auto=format&fit=crop&q=80&w=600',
+  '/cover.svg',
+];
+
 function fmt(s) {
   if (!s || isNaN(s) || s < 0) return '0:00';
   return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 }
 
-/* ─── CANVAS PARTICLE HEARTS ───────────────────────────── */
-function Particles({ count = 22, active = true }) {
+function chainFallback(urls) {
+  return (e) => {
+    const img = e.target;
+    const step = Number(img.dataset.fallbackStep || 0);
+    if (step < urls.length) {
+      img.dataset.fallbackStep = step + 1;
+      img.src = urls[step];
+    }
+  };
+}
+
+/* ─── SPOTIFY EMBED CONTROLLER (música real, direto da página) ── */
+function useSpotifyPlayer() {
+  const controllerRef = useRef(null);
+  const nextRef = useRef(() => {});
+  const endedRef = useRef(false);
+  const [ready, setReady] = useState(false);
+  const [trackIndex, setTrackIndex] = useState(0);
+  const trackIndexRef = useRef(0);
+  const [playing, setPlaying] = useState(false);
+  const [position, setPosition] = useState(0);
+  const [duration, setDuration] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const init = (IFrameAPI) => {
+      if (cancelled) return;
+      const wrapper = document.getElementById('spotify-wrapper');
+      if (!wrapper) return;
+      wrapper.innerHTML = '';
+      const slot = document.createElement('div');
+      wrapper.appendChild(slot);
+      IFrameAPI.createController(
+        slot,
+        { uri: `spotify:track:${TRACKS[0].id}`, width: 320, height: 80 },
+        (controller) => {
+          if (cancelled) { try { controller.destroy(); } catch { /* noop */ } return; }
+          controllerRef.current = controller;
+          controller.addListener('ready', () => { if (!cancelled) setReady(true); });
+          controller.addListener('playback_update', (e) => {
+            if (cancelled || !e?.data) return;
+            const { isPaused, position: pos = 0, duration: dur = 0 } = e.data;
+            setPlaying(!isPaused);
+            setPosition(pos / 1000);
+            if (dur > 0) setDuration(dur / 1000);
+            // fim da faixa → próxima automaticamente
+            if (dur > 0 && pos >= dur - 800 && isPaused) {
+              if (!endedRef.current) { endedRef.current = true; nextRef.current(); }
+            } else {
+              endedRef.current = false;
+            }
+          });
+        }
+      );
+    };
+
+    if (window.__spotifyIframeApi) {
+      init(window.__spotifyIframeApi);
+    } else {
+      window.onSpotifyIframeApiReady = (IFrameAPI) => {
+        window.__spotifyIframeApi = IFrameAPI;
+        init(IFrameAPI);
+      };
+      if (!document.querySelector('script[src*="open.spotify.com/embed/iframe-api"]')) {
+        const s = document.createElement('script');
+        s.src = 'https://open.spotify.com/embed/iframe-api/v1';
+        s.async = true;
+        document.body.appendChild(s);
+      }
+    }
+
+    return () => {
+      cancelled = true;
+      try { controllerRef.current?.destroy(); } catch { /* noop */ }
+      controllerRef.current = null;
+    };
+  }, []);
+
+  const playTrack = useCallback((i) => {
+    const idx = ((i % TRACKS.length) + TRACKS.length) % TRACKS.length;
+    setTrackIndex(idx);
+    trackIndexRef.current = idx;
+    setPosition(0);
+    setDuration(0);
+    const c = controllerRef.current;
+    if (!c) return;
+    try {
+      c.loadUri(`spotify:track:${TRACKS[idx].id}`);
+      c.play();
+    } catch { /* noop */ }
+  }, []);
+
+  const next = useCallback(() => playTrack(trackIndexRef.current + 1), [playTrack]);
+  const prev = useCallback(() => playTrack(trackIndexRef.current - 1), [playTrack]);
+  useEffect(() => { nextRef.current = next; }, [next]);
+
+  const toggle = useCallback(() => {
+    try { controllerRef.current?.togglePlay(); } catch { /* noop */ }
+  }, []);
+
+  const begin = useCallback(() => {
+    try { controllerRef.current?.play(); } catch { /* noop */ }
+  }, []);
+
+  const seek = useCallback((fraction) => {
+    const c = controllerRef.current;
+    if (!c || !duration) return;
+    const t = Math.max(0, Math.min(1, fraction)) * duration;
+    try { c.seek(t); setPosition(t); } catch { /* noop */ }
+  }, [duration]);
+
+  return { ready, trackIndex, playing, position, duration, playTrack, next, prev, toggle, begin, seek };
+}
+
+/* ─── CANVAS PARTICLES: corações + faíscas douradas com profundidade ── */
+function Particles({ count = 22 }) {
   const ref = useRef(null);
   useEffect(() => {
-    if (!active) return;
     const c = ref.current;
     const ctx = c.getContext('2d');
     let raf;
     const resize = () => { c.width = window.innerWidth; c.height = window.innerHeight; };
     resize();
     window.addEventListener('resize', resize);
-    const P = Array.from({ length: count }, () => ({
-      x: Math.random() * c.width,
-      y: c.height + Math.random() * c.height,
-      r: 5 + Math.random() * 10,
-      speed: 0.35 + Math.random() * 0.7,
-      drift: (Math.random() - 0.5) * 0.4,
-      a: 0.15 + Math.random() * 0.4,
-      rot: Math.random() * Math.PI * 2,
-      rs: (Math.random() - 0.5) * 0.015,
-    }));
+
+    const P = Array.from({ length: count }, () => {
+      const depth = 0.25 + Math.random() * 0.75; // 0 = longe, 1 = perto
+      const gold = Math.random() < 0.35;
+      return {
+        x: Math.random() * c.width,
+        y: c.height * Math.random() + c.height * 0.3,
+        depth, gold,
+        r: gold ? 1 + depth * 2.4 : 4 + depth * 11,
+        speed: 0.18 + depth * 0.62,
+        sway: 14 + Math.random() * 26,
+        swayF: 0.0006 + Math.random() * 0.0009,
+        phase: Math.random() * Math.PI * 2,
+        a: gold ? 0.25 + depth * 0.55 : 0.1 + depth * 0.38,
+        rot: Math.random() * Math.PI * 2,
+        rs: (Math.random() - 0.5) * 0.014,
+        tw: Math.random() * Math.PI * 2,
+      };
+    });
+
     const heart = (x, y, r, rot, a) => {
       ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.globalAlpha = a;
       ctx.fillStyle = '#c9415a';
@@ -70,18 +198,31 @@ function Particles({ count = 22, active = true }) {
       ctx.bezierCurveTo(-r, -r * 0.12, -r * 0.52, -r * 0.78, 0, -r * 0.28);
       ctx.closePath(); ctx.fill(); ctx.restore();
     };
-    const loop = () => {
+
+    const spark = (x, y, r, a, t, tw) => {
+      const twinkle = 0.55 + 0.45 * Math.sin(t * 0.004 + tw);
+      ctx.save(); ctx.translate(x, y); ctx.globalAlpha = a * twinkle;
+      ctx.fillStyle = '#e8c96a';
+      ctx.beginPath();
+      ctx.moveTo(0, -r * 2); ctx.lineTo(r * 0.6, 0); ctx.lineTo(0, r * 2); ctx.lineTo(-r * 0.6, 0);
+      ctx.closePath(); ctx.fill(); ctx.restore();
+    };
+
+    const loop = (t) => {
       ctx.clearRect(0, 0, c.width, c.height);
       P.forEach(p => {
-        p.y -= p.speed; p.x += p.drift; p.rot += p.rs;
-        if (p.y < -20) { p.y = c.height + 20; p.x = Math.random() * c.width; }
-        heart(p.x, p.y, p.r, p.rot, p.a);
+        p.y -= p.speed;
+        p.rot += p.rs;
+        if (p.y < -24) { p.y = c.height + 24; p.x = Math.random() * c.width; }
+        const x = p.x + Math.sin(t * p.swayF + p.phase) * p.sway * p.depth;
+        if (p.gold) spark(x, p.y, p.r, p.a, t, p.tw);
+        else heart(x, p.y, p.r, p.rot, p.a);
       });
       raf = requestAnimationFrame(loop);
     };
-    loop();
+    raf = requestAnimationFrame(loop);
     return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize); };
-  }, [count, active]);
+  }, [count]);
   return <canvas ref={ref} style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 1 }} />;
 }
 
@@ -100,33 +241,72 @@ function FilmGrain() {
   );
 }
 
-/* ─── VISUALIZER ─────────────────────────────────────────── */
+/* ─── VISUALIZER (barras dançando, suave por seno) ─────── */
 function Visualizer({ playing, bars = 24 }) {
-  const heights = useRef(Array.from({ length: bars }, () => 3 + Math.random() * 20));
-  const [, tick] = useState(0);
+  const ref = useRef(null);
   useEffect(() => {
-    if (!playing) return;
-    const iv = setInterval(() => {
-      heights.current = heights.current.map(h => {
-        const delta = (Math.random() - 0.5) * 10;
-        return Math.max(3, Math.min(28, h + delta));
-      });
-      tick(t => t + 1);
-    }, 80);
-    return () => clearInterval(iv);
+    const el = ref.current;
+    if (!el) return;
+    let raf;
+    const seeds = Array.from({ length: el.children.length }, () => ({
+      f: 0.6 + Math.random() * 1.6,
+      p: Math.random() * Math.PI * 2,
+      a: 0.4 + Math.random() * 0.6,
+    }));
+    const loop = (t) => {
+      for (let i = 0; i < el.children.length; i++) {
+        const s = seeds[i];
+        const h = playing
+          ? 4 + Math.abs(Math.sin((t / 1000) * s.f * Math.PI + s.p)) * 22 * s.a + Math.random() * 2
+          : 3;
+        el.children[i].style.height = `${h}px`;
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
   }, [playing, bars]);
 
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 28 }}>
-      {heights.current.map((h, i) => (
-        <div key={i} style={{
-          width: 3, borderRadius: 4,
-          height: playing ? h : 3,
-          background: 'linear-gradient(180deg, #c9415a, #c9a84c)',
-          transition: 'height 0.08s ease',
+    <div ref={ref} style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 28 }}>
+      {Array.from({ length: bars }).map((_, i) => (
+        <span key={i} style={{
+          width: 3, borderRadius: 4, height: 3,
+          background: 'linear-gradient(180deg, #c9a84c, #c9415a)',
+          transition: 'height 0.1s ease',
         }} />
       ))}
     </div>
+  );
+}
+
+/* ─── EXPLOSÃO DE CORAÇÕES (ao dar play) ─────────────────── */
+function HeartBurst({ trigger }) {
+  return (
+    <AnimatePresence>
+      {trigger > 0 && (
+        <motion.div key={trigger} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+          {Array.from({ length: 8 }).map((_, i) => {
+            const a = (i / 8) * Math.PI * 2 + 0.4;
+            return (
+              <motion.span
+                key={i}
+                initial={{ x: 0, y: 0, opacity: 1, scale: 0.3 }}
+                animate={{ x: Math.cos(a) * 52, y: Math.sin(a) * 52, opacity: 0, scale: 1.1 }}
+                transition={{ duration: 0.85, ease: 'easeOut' }}
+                style={{
+                  position: 'absolute', left: '50%', top: '50%',
+                  marginLeft: -7, marginTop: -9,
+                  color: i % 2 ? '#c9a84c' : '#c9415a', fontSize: 14,
+                }}
+              >
+                ♥
+              </motion.span>
+            );
+          })}
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -140,6 +320,16 @@ function PhaseCinema({ onEnd }) {
       exit={{ opacity: 0, transition: { duration: 1.2 } }}
     >
       <Particles count={14} />
+      {/* luz de vela tremeluzindo */}
+      <motion.div
+        animate={{ opacity: [0.35, 0.6, 0.42, 0.66, 0.4], scale: [1, 1.06, 0.98, 1.08, 1] }}
+        transition={{ duration: 4.2, repeat: Infinity, ease: 'easeInOut' }}
+        style={{
+          position: 'absolute', width: '70vmin', height: '70vmin', borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(201,168,76,0.13) 0%, rgba(92,10,35,0.1) 45%, transparent 70%)',
+          filter: 'blur(10px)',
+        }}
+      />
       <div className="text-center" style={{ zIndex: 10 }}>
         <motion.div
           initial={{ scaleX: 0 }}
@@ -177,14 +367,26 @@ function PhaseCinema({ onEnd }) {
   );
 }
 
-/* ─── PHASE 0: 3D ENVELOPE ───────────────────────────────── */
+/* ─── PHASE 0: ENVELOPE — puxe a carta, o lacre se desfaz ── */
 function PhaseEnvelope({ onOpen }) {
-  const [opened, setOpened] = useState(false);
-  const [letterOut, setLetterOut] = useState(false);
+  const [done, setDone] = useState(false);
+  const doneRef = useRef(false);
+
+  // tilt 3D com o mouse
   const mouseX = useMotionValue(0);
   const mouseY = useMotionValue(0);
   const rotX = useSpring(useTransform(mouseY, [-300, 300], [12, -12]), { stiffness: 80, damping: 20 });
   const rotY = useSpring(useTransform(mouseX, [-400, 400], [-14, 14]), { stiffness: 80, damping: 20 });
+
+  // física do puxão
+  const dragY = useMotionValue(0);
+  const pull = useTransform(dragY, [0, -200], [0, 1]);
+  const sealScale = useTransform(pull, [0, 0.45], [1, 0]);
+  const sealOpacity = useTransform(pull, [0, 0.42], [1, 0]);
+  const flapRot = useTransform(pull, [0.08, 0.55], [0, -180]);
+  const letterY = useTransform(pull, [0, 1], [0, -205]);
+  const letterScale = useTransform(pull, [0, 1], [0.96, 1.02]);
+  const glowOpacity = useTransform(pull, [0, 1], [0.12, 0.5]);
 
   const handleMouseMove = (e) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -193,11 +395,22 @@ function PhaseEnvelope({ onOpen }) {
   };
   const handleMouseLeave = () => { mouseX.set(0); mouseY.set(0); };
 
-  const handleClick = () => {
-    if (opened || letterOut) return;
-    setOpened(true);
-    setTimeout(() => setLetterOut(true), 700);
-    setTimeout(() => onOpen(), 2000);
+  const finish = useCallback(() => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    setDone(true);
+    animate(dragY, -200, { duration: 0.9, ease: [0.16, 1, 0.3, 1] });
+    setTimeout(onOpen, 1400);
+  }, [dragY, onOpen]);
+
+  const onDragEnd = () => {
+    if (doneRef.current) return;
+    if (dragY.get() < -110) {
+      finish();
+    } else {
+      // tensão de elástico: volta com mola
+      animate(dragY, 0, { type: 'spring', stiffness: 320, damping: 16 });
+    }
   };
 
   return (
@@ -211,30 +424,42 @@ function PhaseEnvelope({ onOpen }) {
       {/* Hint */}
       <motion.p
         initial={{ opacity: 0 }}
-        animate={{ opacity: letterOut ? 0 : 1 }}
+        animate={{ opacity: done ? 0 : 1 }}
         transition={{ delay: 0.8, duration: 1 }}
         style={{
-          position: 'absolute', top: '28%',
+          position: 'absolute', top: '24%',
           fontSize: 11, letterSpacing: '0.35em', textTransform: 'uppercase',
-          color: '#6b5c60', fontFamily: 'Inter', fontWeight: 300, zIndex: 10
+          color: '#6b5c60', fontFamily: 'Inter', fontWeight: 300, zIndex: 10, textAlign: 'center',
         }}
       >
-        {opened ? 'uma surpresa para você...' : 'clique no envelope'}
+        puxe a carta para cima ♡
+      </motion.p>
+      <motion.p
+        initial={{ opacity: 0 }}
+        animate={{ opacity: done ? 1 : 0 }}
+        transition={{ duration: 0.8 }}
+        style={{
+          position: 'absolute', top: '24%',
+          fontSize: 11, letterSpacing: '0.35em', textTransform: 'uppercase',
+          color: '#c9a84c', fontFamily: 'Inter', fontWeight: 300, zIndex: 10,
+        }}
+      >
+        uma surpresa para você...
       </motion.p>
 
       {/* 3D Envelope wrapper */}
-      <motion.div
+      <div
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
-        onClick={handleClick}
-        style={{
-          width: 380, height: 260,
-          perspective: 900,
-          zIndex: 10,
-          cursor: opened ? 'default' : 'pointer',
-          position: 'relative',
-        }}
+        style={{ width: 380, height: 260, maxWidth: '88vw', perspective: 900, zIndex: 10, position: 'relative' }}
       >
+        {/* brilho dourado que cresce conforme o puxão */}
+        <motion.div style={{
+          position: 'absolute', inset: -60, borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(201,168,76,0.35), transparent 65%)',
+          opacity: glowOpacity, filter: 'blur(18px)', pointerEvents: 'none',
+        }} />
+
         <motion.div
           style={{
             width: '100%', height: '100%',
@@ -242,10 +467,31 @@ function PhaseEnvelope({ onOpen }) {
             transformStyle: 'preserve-3d',
             position: 'relative',
           }}
-          whileHover={!opened ? { scale: 1.04 } : {}}
-          transition={{ type: 'spring', stiffness: 120, damping: 18 }}
         >
-          {/* ── ENVELOPE BODY ── */}
+          {/* ── A CARTA (atrás do corpo; emerge ao puxar) ── */}
+          <motion.div
+            style={{
+              position: 'absolute', left: '8%', right: '8%', bottom: '6%', height: '88%',
+              y: letterY, scale: letterScale,
+              background: 'linear-gradient(160deg, #fdf8f2, #f0e8da)',
+              borderRadius: 3,
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', gap: 10,
+              boxShadow: '0 -10px 40px rgba(0,0,0,0.35)',
+              padding: '20px 24px',
+            }}
+          >
+            <div style={{ width: '60%', height: 1, background: 'linear-gradient(90deg, transparent, #c9a84c, transparent)' }} />
+            <p style={{
+              fontFamily: 'Dancing Script, cursive',
+              fontSize: 28, color: '#3a1020', lineHeight: 1.3, textAlign: 'center'
+            }}>
+              Para Helena,<br />com todo meu amor
+            </p>
+            <div style={{ width: '40%', height: 1, background: 'linear-gradient(90deg, transparent, #c9a84c80, transparent)' }} />
+          </motion.div>
+
+          {/* ── CORPO DO ENVELOPE (cobre a carta) ── */}
           <div style={{
             position: 'absolute', inset: 0,
             background: 'linear-gradient(160deg, #1e0510 0%, #130309 60%, #0e0207 100%)',
@@ -254,16 +500,6 @@ function PhaseEnvelope({ onOpen }) {
             boxShadow: '0 40px 80px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.05)',
             overflow: 'hidden',
           }}>
-            {/* Inside envelope (visible when opened) */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: opened ? 1 : 0 }}
-              transition={{ delay: 0.3, duration: 0.5 }}
-              style={{
-                position: 'absolute', inset: 0,
-                background: 'linear-gradient(180deg, #0a0205, #120308)',
-              }}
-            />
             {/* Bottom V fold */}
             <div style={{
               position: 'absolute', bottom: 0, left: 0, right: 0, height: '55%',
@@ -285,18 +521,16 @@ function PhaseEnvelope({ onOpen }) {
             }} />
           </div>
 
-          {/* ── ENVELOPE FLAP (opens on click) ── */}
+          {/* ── ABA DO ENVELOPE (abre conforme o puxão) ── */}
           <motion.div
-            animate={{ rotateX: opened ? -180 : 0, originY: 0 }}
-            transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
             style={{
               position: 'absolute', top: 0, left: 0, right: 0, height: '52%',
+              rotateX: flapRot,
               transformOrigin: 'top',
               transformStyle: 'preserve-3d',
               zIndex: 5,
             }}
           >
-            {/* Front of flap */}
             <div style={{
               position: 'absolute', inset: 0,
               background: 'linear-gradient(175deg, #2a0814 0%, #1a0510 50%, #120309 100%)',
@@ -304,7 +538,6 @@ function PhaseEnvelope({ onOpen }) {
               borderBottom: '1px solid rgba(201,168,76,0.15)',
               backfaceVisibility: 'hidden',
             }} />
-            {/* Back of flap (inner side) */}
             <div style={{
               position: 'absolute', inset: 0,
               background: 'linear-gradient(175deg, #f5f0ea 0%, #ede0d0 100%)',
@@ -314,77 +547,64 @@ function PhaseEnvelope({ onOpen }) {
             }} />
           </motion.div>
 
-          {/* ── WAX SEAL ── */}
+          {/* ── LACRE DOURADO (se desfaz conforme você puxa) ── */}
           <motion.div
-            animate={{ 
-              scale: opened ? 0 : 1, 
-              opacity: opened ? 0 : 1,
-              y: opened ? 20 : 0,
-            }}
-            transition={{ duration: 0.4 }}
             style={{
               position: 'absolute', top: '38%', left: '50%',
-              transform: 'translate(-50%, -50%)',
+              marginLeft: -26, marginTop: -26,
+              scale: sealScale, opacity: sealOpacity,
               width: 52, height: 52,
               background: 'radial-gradient(circle at 35% 35%, #f0d080, #c9a84c 50%, #9a7832)',
               borderRadius: '50%',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 22, zIndex: 6,
+              fontSize: 22, zIndex: 6, color: '#3a1020',
               boxShadow: '0 4px 16px rgba(0,0,0,0.5), 0 0 20px rgba(201,168,76,0.3), inset 0 1px 2px rgba(255,255,255,0.3)',
             }}
           >
             ♡
           </motion.div>
 
-          {/* ── THE LETTER ── */}
+          {/* ── CAMADA DE ARRASTO (invisível, tensão de elástico) ── */}
           <motion.div
-            animate={letterOut ? { y: -220, opacity: 1 } : { y: 0, opacity: 0 }}
-            initial={{ y: 0, opacity: 0 }}
-            transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
+            drag={done ? false : 'y'}
+            dragConstraints={{ top: -200, bottom: 0 }}
+            dragElastic={0.55}
+            onDragEnd={onDragEnd}
+            onTap={finish}
             style={{
-              position: 'absolute', inset: '10% 8%', bottom: '15%',
-              background: 'linear-gradient(160deg, #fdf8f2, #f0e8da)',
-              borderRadius: 3, zIndex: 4,
-              display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center', gap: 10,
-              boxShadow: '0 -10px 40px rgba(0,0,0,0.3)',
-              padding: '20px 24px',
+              position: 'absolute', inset: '-12% -6%',
+              y: dragY,
+              zIndex: 20,
+              cursor: done ? 'default' : 'grab',
+              touchAction: 'none',
             }}
-          >
-            {/* Decorative line top */}
-            <div style={{ width: '60%', height: 1, background: 'linear-gradient(90deg, transparent, #c9a84c, transparent)' }} />
-            <p style={{
-              fontFamily: 'Dancing Script, cursive',
-              fontSize: 30, color: '#3a1020', lineHeight: 1.3, textAlign: 'center'
-            }}>
-              Para Helena,<br/>com todo meu amor
-            </p>
-            <div style={{ width: '40%', height: 1, background: 'linear-gradient(90deg, transparent, #c9a84c80, transparent)' }} />
-            <p style={{ fontSize: 11, letterSpacing: '0.3em', color: '#8a6050', fontFamily: 'Inter', fontWeight: 300 }}>
-              ABRIR ▸
-            </p>
-          </motion.div>
+            whileDrag={{ cursor: 'grabbing' }}
+          />
         </motion.div>
-      </motion.div>
+      </div>
     </motion.div>
   );
 }
 
-/* ─── PHASE 1: SPAM ──────────────────────────────────────── */
-function PhaseSpam() {
-  const words = useMemo(() => Array.from({ length: 42 }, (_, i) => {
-    const odd = i % 2 === 0;
-    return {
-      text: SPAM[i % SPAM.length],
-      x: 3 + Math.random() * 92,
-      y: 3 + Math.random() * 92,
-      size: odd ? 16 + Math.random() * 22 : 32 + Math.random() * 36,
-      delay: Math.random() * 2.2,
-      dur: 0.7 + Math.random() * 1.0,
-      filled: Math.random() > 0.45,
-      rot: (Math.random() - 0.5) * 18,
-    };
-  }), []);
+/* ─── PHASE 1: UNIVERSO 3D DE PALAVRAS ───────────────────── */
+const UNIVERSE_WORDS = Array.from({ length: 54 }, (_, i) => {
+  const depth = Math.random(); // 0 = fundo, 1 = perto
+  return {
+    text: SPAM[i % SPAM.length],
+    x: 6 + Math.random() * 88,
+    y: 6 + Math.random() * 88,
+    z: -560 + depth * 760,
+    size: 16 + Math.random() * 38,
+    delay: Math.random() * 2.8,
+    dur: 2.2 + Math.random() * 1.8,
+    filled: Math.random() > 0.5,
+    rot: (Math.random() - 0.5) * 16,
+    maxO: 0.45 + depth * 0.55,
+  };
+});
+
+function PhaseUniverse() {
+  const words = UNIVERSE_WORDS;
 
   return (
     <motion.div
@@ -392,14 +612,17 @@ function PhaseSpam() {
       style={{
         background: 'radial-gradient(ellipse at 50% 50%, #1a0010 0%, #050005 70%)',
         zIndex: 40,
+        perspective: 900,
       }}
       exit={{ opacity: 0, filter: 'blur(12px)', transition: { duration: 1 } }}
     >
-      {/* Giant heart bg */}
+      <Particles count={16} />
+
+      {/* Coração gigante de fundo */}
       <motion.div
         initial={{ opacity: 0, scale: 3 }}
         animate={{ opacity: [0, 0.07, 0.04], scale: [3, 1.2, 0.9] }}
-        transition={{ duration: 4, ease: 'easeOut' }}
+        transition={{ duration: 5, ease: 'easeOut' }}
         style={{
           position: 'absolute', inset: 0, display: 'flex',
           alignItems: 'center', justifyContent: 'center',
@@ -411,29 +634,37 @@ function PhaseSpam() {
         ♡
       </motion.div>
 
-      {words.map((w, i) => (
-        <motion.div
-          key={i}
-          style={{
-            position: 'absolute',
-            left: `${w.x}%`, top: `${w.y}%`,
-            fontSize: w.size,
-            transform: `translate(-50%,-50%) rotate(${w.rot}deg)`,
-            fontFamily: 'Cormorant Garamond',
-            fontWeight: 300,
-            color: w.filled ? '#c9415a' : 'transparent',
-            WebkitTextStroke: w.filled ? 'none' : '1px rgba(201,65,90,0.6)',
-            textShadow: w.filled ? '0 0 25px rgba(201,65,90,0.5)' : 'none',
-            pointerEvents: 'none',
-            whiteSpace: 'nowrap',
-          }}
-          initial={{ opacity: 0, scale: 0.2, filter: 'blur(10px)' }}
-          animate={{ opacity: [0, 1, 1, 0], scale: [0.2, 1, 1.05, 1.3], filter: ['blur(10px)', 'blur(0px)', 'blur(0px)', 'blur(8px)'] }}
-          transition={{ delay: w.delay, duration: w.dur, ease: 'easeOut' }}
-        >
-          {w.text}
-        </motion.div>
-      ))}
+      {/* câmera atravessando o universo de palavras */}
+      <motion.div
+        style={{ position: 'absolute', inset: 0, transformStyle: 'preserve-3d' }}
+        initial={{ z: 0, rotateY: -4, rotateX: 2 }}
+        animate={{ z: 340, rotateY: 5, rotateX: -3 }}
+        transition={{ duration: 7, ease: 'easeInOut' }}
+      >
+        {words.map((w, i) => (
+          <motion.div
+            key={i}
+            style={{
+              position: 'absolute',
+              left: `${w.x}%`, top: `${w.y}%`,
+              x: '-50%', y: '-50%', z: w.z, rotate: w.rot,
+              fontSize: w.size,
+              fontFamily: 'Cormorant Garamond',
+              fontWeight: 300,
+              color: w.filled ? '#c9415a' : 'transparent',
+              WebkitTextStroke: w.filled ? undefined : '1px rgba(201,65,90,0.6)',
+              textShadow: w.filled ? '0 0 25px rgba(201,65,90,0.5)' : 'none',
+              pointerEvents: 'none',
+              whiteSpace: 'nowrap',
+            }}
+            initial={{ opacity: 0, filter: 'blur(8px)' }}
+            animate={{ opacity: [0, w.maxO, w.maxO, 0], filter: ['blur(8px)', 'blur(0px)', 'blur(0px)', 'blur(6px)'] }}
+            transition={{ delay: w.delay, duration: w.dur, times: [0, 0.25, 0.75, 1], ease: 'easeOut' }}
+          >
+            {w.text}
+          </motion.div>
+        ))}
+      </motion.div>
     </motion.div>
   );
 }
@@ -489,12 +720,12 @@ function PhaseInvitation() {
   );
 }
 
-/* ─── PHASE 3: GALLERY ───────────────────────────────────── */
+/* ─── PHASE 3: POLAROIDS COM REVELAÇÃO FOTOGRÁFICA ───────── */
 function PhaseGallery() {
   const items = [
-    { caption: 'Sempre juntos ❤', rotate: -5, x: '-38%', delay: 0.1, scale: 0.85 },
-    { caption: 'Minha dragoa',     rotate: 1,  x:   '0%', delay: 0.5, scale: 1    },
-    { caption: 'Para sempre',      rotate: 6,  x:  '38%', delay: 0.9, scale: 0.85 },
+    { caption: 'Sempre juntos ❤', rotate: -5, x: '-38%', delay: 0.1, scale: 0.85, src: '/photo1.jpg', fb: ['https://images.unsplash.com/photo-1518199266791-5375a83190b7?auto=format&fit=crop&q=80&w=400', '/cover.svg'] },
+    { caption: 'Minha dragoa',     rotate: 1,  x:   '0%', delay: 0.5, scale: 1,    src: '/photo2.jpg', fb: ['https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?auto=format&fit=crop&q=80&w=400', '/cover.svg'] },
+    { caption: 'Para sempre',      rotate: 6,  x:  '38%', delay: 0.9, scale: 0.85, src: '/photo3.jpg', fb: ['https://images.unsplash.com/photo-1474552226712-ac0f0961a954?auto=format&fit=crop&q=80&w=400', '/cover.svg'] },
   ];
 
   return (
@@ -530,20 +761,32 @@ function PhaseGallery() {
             boxShadow: '0 24px 80px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.05)',
             borderRadius: 2,
             width: 220,
+            position: 'relative',
           }}>
-            {/* Photo reveal */}
-            <div style={{ width: 192, height: 192, overflow: 'hidden', position: 'relative' }}>
+            {/* fita dourada */}
+            <div style={{
+              position: 'absolute', top: -10, left: '50%', transform: 'translateX(-50%) rotate(-3deg)',
+              width: 72, height: 20,
+              background: 'linear-gradient(90deg, rgba(201,168,76,0.55), rgba(240,208,128,0.65), rgba(201,168,76,0.55))',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
+              zIndex: 6,
+            }} />
+            {/* Revelação fotográfica */}
+            <div style={{ width: 192, height: 192, overflow: 'hidden', position: 'relative', background: '#e9e4dc' }}>
               <motion.div
                 initial={{ y: '0%' }}
-                animate={{ y: '-100%' }}
+                animate={{ y: '-101%' }}
                 transition={{ delay: item.delay + 0.6, duration: 1.1, ease: [0.76, 0, 0.24, 1] }}
-                style={{ position: 'absolute', inset: 0, background: '#fff', zIndex: 2 }}
+                style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, #fff 85%, #f0ece4)', zIndex: 2 }}
               />
-              <img
-                src="/collage.jpg"
+              <motion.img
+                src={item.src}
                 alt="Helena"
+                initial={{ filter: 'sepia(0.5) brightness(1.7) contrast(0.7) blur(6px)' }}
+                animate={{ filter: 'sepia(0) brightness(1) contrast(1) blur(0px)' }}
+                transition={{ delay: item.delay + 1.1, duration: 1.6, ease: 'easeOut' }}
                 style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                onError={e => { e.target.src = 'https://images.unsplash.com/photo-1518199266791-5375a83190b7?auto=format&fit=crop&q=80&w=400'; }}
+                onError={chainFallback(item.fb)}
               />
             </div>
             <p style={{ fontFamily: 'Dancing Script, cursive', color: '#555', fontSize: 17, textAlign: 'center', marginTop: 10 }}>
@@ -558,7 +801,7 @@ function PhaseGallery() {
         animate={{ opacity: 0.45 }}
         transition={{ delay: 3, duration: 1 }}
         style={{
-          position: 'absolute', bottom: '10%',
+          position: 'absolute', bottom: '8%',
           fontSize: 10, letterSpacing: '0.4em', color: '#6b5c60',
           fontFamily: 'Inter', fontWeight: 300, textTransform: 'uppercase', zIndex: 10
         }}
@@ -569,11 +812,21 @@ function PhaseGallery() {
   );
 }
 
-/* ─── PHASE 4: PLAYER ────────────────────────────────────── */
-function PhasePlayer({ ytPlayer, playing, toggle, currentTime, duration, onSeek }) {
+/* ─── PHASE 4: PLAYER TOTALMENTE CUSTOM ──────────────────── */
+function PhasePlayer({ player }) {
+  const { ready, trackIndex, playing, playTrack, toggle, next, prev } = player;
   const [lyrics, setLyrics] = useState(false);
   const [activeLyric, setActiveLyric] = useState(0);
-  const pct = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const [burst, setBurst] = useState(0);
+  const [fallback, setFallback] = useState(false);
+
+  const useFallback = fallback && !ready;
+
+  useEffect(() => {
+    if (ready) return;
+    const t = setTimeout(() => setFallback(true), 8000);
+    return () => clearTimeout(t);
+  }, [ready]);
 
   useEffect(() => {
     if (!lyrics) return;
@@ -584,9 +837,14 @@ function PhasePlayer({ ytPlayer, playing, toggle, currentTime, duration, onSeek 
     return () => el.removeEventListener('scroll', fn);
   }, [lyrics]);
 
+  const handlePlay = () => {
+    toggle();
+    if (!playing) setBurst(b => b + 1);
+  };
+
   return (
     <motion.div
-      style={{ minHeight: '100vh', paddingBottom: 100 }}
+      style={{ minHeight: '100vh', paddingBottom: 120 }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 1.5 }}
@@ -599,7 +857,7 @@ function PhasePlayer({ ytPlayer, playing, toggle, currentTime, duration, onSeek 
         padding: 'clamp(60px,10vw,100px) clamp(24px,6vw,80px) 40px',
         display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 36, position: 'relative', zIndex: 10,
       }}>
-        {/* Cover 3D */}
+        {/* Capa 3D flutuante com reflexo */}
         <motion.div
           initial={{ opacity: 0, rotateY: -20, y: 30 }}
           animate={{ opacity: 1, rotateY: 0, y: 0 }}
@@ -607,19 +865,33 @@ function PhasePlayer({ ytPlayer, playing, toggle, currentTime, duration, onSeek 
           style={{ flexShrink: 0, perspective: 800, position: 'relative' }}
         >
           <motion.div
-            animate={{ rotateY: [0, 4, 0, -4, 0] }}
+            animate={{ rotateY: [0, 4, 0, -4, 0], y: [0, -6, 0] }}
             transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }}
-            style={{ width: 'clamp(160px,22vw,220px)', aspectRatio: '1', transformStyle: 'preserve-3d' }}
+            style={{ width: 'clamp(160px,22vw,220px)', aspectRatio: '1', transformStyle: 'preserve-3d', position: 'relative' }}
           >
             <img
               src="/collage.jpg"
               alt=""
               style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 4, display: 'block', boxShadow: '0 30px 80px rgba(0,0,0,0.7), 0 0 50px rgba(201,65,90,0.15)' }}
-              onError={e => { e.target.src = 'https://images.unsplash.com/photo-1518199266791-5375a83190b7?auto=format&fit=crop&q=80&w=600'; }}
+              onError={chainFallback(COVER_FALLBACKS)}
+            />
+            {/* reflexo real da capa */}
+            <img
+              src="/collage.jpg"
+              alt=""
+              aria-hidden
+              style={{
+                position: 'absolute', top: '101%', left: 0, width: '100%', height: '60%',
+                objectFit: 'cover', objectPosition: 'bottom', borderRadius: 4,
+                transform: 'scaleY(-1)',
+                opacity: 0.28, filter: 'blur(2px)',
+                WebkitMaskImage: 'linear-gradient(180deg, transparent 30%, rgba(0,0,0,0.8))',
+                maskImage: 'linear-gradient(180deg, transparent 30%, rgba(0,0,0,0.8))',
+                pointerEvents: 'none',
+              }}
+              onError={chainFallback(COVER_FALLBACKS)}
             />
           </motion.div>
-          {/* Reflection */}
-          <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, height: 60, background: 'linear-gradient(180deg, rgba(255,255,255,0.06), transparent)', transform: 'scaleY(-0.4)', filter: 'blur(2px)', opacity: 0.4, borderRadius: 4 }} />
         </motion.div>
 
         {/* Info */}
@@ -640,10 +912,10 @@ function PhasePlayer({ ytPlayer, playing, toggle, currentTime, duration, onSeek 
             animation: 'shimmer 5s linear infinite',
             marginBottom: 14,
           }}>
-            Para a Minha<br/>Dragoa
+            Para a Minha<br />Dragoa
           </h1>
           <p style={{ fontSize: 13, fontWeight: 300, color: '#8a7070', lineHeight: 1.8, maxWidth: 460, marginBottom: 14 }}>
-            As músicas que embalam o nosso amor.<br/>Para você, Helena Narloch, no Dia dos Namorados.
+            As músicas que embalam o nosso amor.<br />Para você, Helena Narloch, no Dia dos Namorados.
           </p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12, color: '#6b5c60' }}>
             <span style={{ color: '#c9415a' }}>♡</span>
@@ -655,26 +927,44 @@ function PhasePlayer({ ytPlayer, playing, toggle, currentTime, duration, onSeek 
       </div>
 
       {/* ── CONTROLS ── */}
-      <div style={{ padding: '0 clamp(24px,6vw,80px) 16px', display: 'flex', alignItems: 'center', gap: 20, position: 'relative', zIndex: 10 }}>
-        <button
-          onClick={toggle}
-          style={{
-            width: 56, height: 56, borderRadius: '50%', border: 'none', cursor: 'pointer',
-            background: 'linear-gradient(135deg, #c9415a, #7a1230)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 0 30px rgba(201,65,90,0.4)',
-            transition: 'transform 0.2s, box-shadow 0.2s',
-          }}
-          onMouseOver={e => { e.currentTarget.style.transform = 'scale(1.1)'; e.currentTarget.style.boxShadow = '0 0 45px rgba(201,65,90,0.6)'; }}
-          onMouseOut={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 0 30px rgba(201,65,90,0.4)'; }}
-        >
-          {playing
-            ? <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
-            : <svg width="22" height="22" viewBox="0 0 24 24" fill="white" style={{ marginLeft: 3 }}><polygon points="5,3 19,12 5,21"/></svg>
-          }
+      <div style={{ padding: '0 clamp(24px,6vw,80px) 16px', display: 'flex', alignItems: 'center', gap: 16, position: 'relative', zIndex: 10, flexWrap: 'wrap' }}>
+        <button onClick={prev} className="btn-icon" aria-label="anterior">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zM9.5 12l8.5 6V6z"/></svg>
+        </button>
+
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={handlePlay}
+            aria-label={playing ? 'pausar' : 'tocar'}
+            style={{
+              width: 56, height: 56, borderRadius: '50%', border: 'none', cursor: 'pointer',
+              background: 'linear-gradient(135deg, #c9415a, #7a1230)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 0 30px rgba(201,65,90,0.4)',
+              transition: 'transform 0.2s, box-shadow 0.2s',
+            }}
+            onMouseOver={e => { e.currentTarget.style.transform = 'scale(1.1)'; e.currentTarget.style.boxShadow = '0 0 45px rgba(201,65,90,0.6)'; }}
+            onMouseOut={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 0 30px rgba(201,65,90,0.4)'; }}
+          >
+            {playing
+              ? <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+              : <svg width="22" height="22" viewBox="0 0 24 24" fill="white" style={{ marginLeft: 3 }}><polygon points="5,3 19,12 5,21"/></svg>
+            }
+          </button>
+          <HeartBurst trigger={burst} />
+        </div>
+
+        <button onClick={next} className="btn-icon" aria-label="próxima">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>
         </button>
 
         <Visualizer playing={playing} />
+
+        {!ready && !useFallback && (
+          <span style={{ fontSize: 10, letterSpacing: '0.3em', color: '#6b5c60', fontFamily: 'Inter', textTransform: 'uppercase' }}>
+            afinando os corações...
+          </span>
+        )}
 
         <button
           onClick={() => setLyrics(v => !v)}
@@ -689,29 +979,75 @@ function PhasePlayer({ ytPlayer, playing, toggle, currentTime, duration, onSeek 
         </button>
       </div>
 
-      {/* ── TRACKLIST ── */}
+      {/* ── TRACKLIST CUSTOM ── */}
       <div style={{ padding: '8px clamp(24px,6vw,80px)', position: 'relative', zIndex: 10 }}>
         <div style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: 10, marginBottom: 4, fontSize: 10, letterSpacing: '0.3em', color: '#4a3040', textTransform: 'uppercase', fontFamily: 'Inter' }}>
           Faixas
         </div>
-        {TRACKS.map((track, i) => (
-          <motion.div
-            key={track.id}
-            initial={{ opacity: 0, x: -16 }}
-            whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: true }}
-            transition={{ delay: i * 0.07 }}
-            style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', overflow: 'hidden' }}
-          >
-            <iframe
-              src={`https://open.spotify.com/embed/track/${track.id}?utm_source=generator&theme=0`}
-              width="100%" height="80" frameBorder="0"
-              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-              loading="lazy"
-              style={{ display: 'block', background: 'transparent', borderRadius: 4 }}
-            />
-          </motion.div>
-        ))}
+
+        {!useFallback ? TRACKS.map((track, i) => {
+          const active = i === trackIndex;
+          return (
+            <motion.div
+              key={track.id}
+              className="track-row"
+              onClick={() => playTrack(i)}
+              initial={{ opacity: 0, x: -16 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: i * 0.06 }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 20,
+                padding: '16px 12px', cursor: 'pointer',
+              }}
+            >
+              <span style={{
+                width: 26, textAlign: 'center', flexShrink: 0,
+                fontFamily: 'Cormorant Garamond', fontStyle: 'italic', fontSize: 18,
+                color: active ? '#c9a84c' : '#4a3040',
+              }}>
+                {active && playing ? (
+                  <span className="eq" style={{ display: 'inline-flex', alignItems: 'flex-end', gap: 2, height: 14 }}>
+                    <span style={{ animationDelay: '0s' }} />
+                    <span style={{ animationDelay: '0.25s' }} />
+                    <span style={{ animationDelay: '0.5s' }} />
+                  </span>
+                ) : (
+                  i + 1
+                )}
+              </span>
+              <div style={{ minWidth: 0 }}>
+                <div style={{
+                  fontFamily: 'Cormorant Garamond', fontSize: 20, fontWeight: 400,
+                  color: active ? '#c9415a' : '#e8ddd8',
+                  transition: 'color 0.3s',
+                }}>
+                  {track.title}
+                </div>
+                <div style={{ fontSize: 11, color: '#6b5c60', fontFamily: 'Inter', fontWeight: 300, letterSpacing: '0.08em' }}>
+                  {track.artist}
+                </div>
+              </div>
+              <span className="track-heart" style={{ marginLeft: 'auto', color: active ? '#c9415a' : '#3a2030', fontSize: 15, transition: 'color 0.3s, opacity 0.3s' }}>
+                ♡
+              </span>
+            </motion.div>
+          );
+        }) : (
+          /* fallback gracioso: embeds clássicos se a API não carregar */
+          TRACKS.map((track) => (
+            <div key={track.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', overflow: 'hidden' }}>
+              <iframe
+                title={track.title}
+                src={`https://open.spotify.com/embed/track/${track.id}?utm_source=generator&theme=0`}
+                width="100%" height="80" frameBorder="0"
+                allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                loading="lazy"
+                style={{ display: 'block', background: 'transparent', borderRadius: 4 }}
+              />
+            </div>
+          ))
+        )}
 
         {/* Footer */}
         <motion.div
@@ -741,7 +1077,7 @@ function PhasePlayer({ ytPlayer, playing, toggle, currentTime, duration, onSeek 
               background: 'radial-gradient(ellipse at 25% 20%, rgba(92,10,35,0.5), transparent 55%), radial-gradient(ellipse at 80% 80%, rgba(10,0,20,0.9), transparent 60%), #060206',
             }}
           >
-            <div style={{ paddingTop: '42vh', paddingBottom: '60vh', padding: '42vh max(8vw, 32px) 60vh' }}>
+            <div style={{ padding: '42vh max(8vw, 32px) 60vh' }}>
               {LYRICS.map((line, i) => (
                 <motion.p
                   key={i}
@@ -784,68 +1120,44 @@ function PhasePlayer({ ytPlayer, playing, toggle, currentTime, duration, onSeek 
 /* ─── ROOT ───────────────────────────────────────────────── */
 export default function App() {
   const [phase, setPhase] = useState(-1); // -1 = cinema, 0 = envelope, etc.
-  const [ytPlayer, setYtPlayer] = useState(null);
-  const [playing, setPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const player = useSpotifyPlayer();
+  const { trackIndex, playing, position, duration, toggle, next, prev, seek, begin } = player;
 
   useEffect(() => {
-    if (phase === 1) { const t = setTimeout(() => setPhase(2), 4400); return () => clearTimeout(t); }
+    if (phase === 1) { const t = setTimeout(() => setPhase(2), 6800); return () => clearTimeout(t); }
     if (phase === 2) { const t = setTimeout(() => setPhase(3), 4000); return () => clearTimeout(t); }
     if (phase === 3) { const t = setTimeout(() => { setPhase(4); window.scrollTo(0, 0); }, 5800); return () => clearTimeout(t); }
   }, [phase]);
 
-  useEffect(() => {
-    if (!playing || !ytPlayer) return;
-    const iv = setInterval(async () => {
-      try {
-        setCurrentTime(await ytPlayer.getCurrentTime());
-        const d = await ytPlayer.getDuration();
-        if (d > 0) setDuration(d);
-      } catch {}
-    }, 1000);
-    return () => clearInterval(iv);
-  }, [playing, ytPlayer]);
-
   const openEnvelope = () => {
     setPhase(1);
-    try { ytPlayer?.playVideo(); } catch {}
-  };
-
-  const toggle = () => {
-    if (!ytPlayer) return;
-    playing ? ytPlayer.pauseVideo() : ytPlayer.playVideo();
+    begin(); // a música começa junto com a surpresa
   };
 
   const onSeek = (e) => {
-    if (!ytPlayer || !duration) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const t = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * duration;
-    ytPlayer.seekTo(t, true);
-    setCurrentTime(t);
+    seek((e.clientX - rect.left) / rect.width);
   };
+
+  const track = TRACKS[trackIndex];
 
   return (
     <div style={{ minHeight: '100vh', background: '#060206', color: '#e8ddd8', position: 'relative', overflow: 'hidden' }}>
       <FilmGrain />
 
-      {/* Hidden YouTube streaming player */}
-      <div style={{ position: 'fixed', left: -9999, top: -9999, pointerEvents: 'none', opacity: 0 }}>
-        <YouTube
-          videoId="S01614jS0pM"
-          opts={{ playerVars: { autoplay: 0, controls: 0, modestbranding: 1, rel: 0 } }}
-          onReady={e => setYtPlayer(e.target)}
-          onStateChange={e => { if (e.data === 1) setPlaying(true); else if (e.data === 2 || e.data === 0) setPlaying(false); }}
-        />
-      </div>
+      {/* Player Spotify escondido (controlado pela nossa UI) */}
+      <div
+        id="spotify-wrapper"
+        style={{ position: 'fixed', left: -9999, bottom: 0, width: 320, height: 80, opacity: 0, pointerEvents: 'none' }}
+      />
 
       <AnimatePresence>
         {phase === -1 && <PhaseCinema key="cinema" onEnd={() => setPhase(0)} />}
         {phase === 0  && <PhaseEnvelope key="env" onOpen={openEnvelope} />}
-        {phase === 1  && <PhaseSpam key="spam" />}
+        {phase === 1  && <PhaseUniverse key="universe" />}
         {phase === 2  && <PhaseInvitation key="inv" />}
         {phase === 3  && <PhaseGallery key="gal" />}
-        {phase === 4  && <PhasePlayer key="player" ytPlayer={ytPlayer} playing={playing} toggle={toggle} currentTime={currentTime} duration={duration} onSeek={onSeek} />}
+        {phase === 4  && <PhasePlayer key="player" player={player} />}
       </AnimatePresence>
 
       {/* ── BOTTOM BAR ── */}
@@ -860,17 +1172,27 @@ export default function App() {
               position: 'fixed', bottom: 0, left: 0, right: 0, height: 76,
               background: 'rgba(6,2,6,0.97)', backdropFilter: 'blur(24px)',
               borderTop: '1px solid rgba(201,168,76,0.1)',
-              display: 'flex', alignItems: 'center', gap: 16, padding: '0 20px',
+              display: 'flex', alignItems: 'center', gap: 14, padding: '0 20px',
               zIndex: 100,
             }}
           >
-            <img src="/collage.jpg" alt="" style={{ width: 46, height: 46, objectFit: 'cover', borderRadius: 3, flexShrink: 0 }} onError={e => e.target.style.display = 'none'} />
-            <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', minWidth: 100 }}>
-              <span style={{ fontSize: 12, fontWeight: 500, color: '#e8ddd8' }}>Lovers Rock</span>
-              <span style={{ fontSize: 11, color: '#6b5c60' }}>TV Girl</span>
+            <img
+              src="/collage.jpg"
+              alt=""
+              style={{ width: 46, height: 46, objectFit: 'cover', borderRadius: 3, flexShrink: 0 }}
+              onError={chainFallback(COVER_FALLBACKS)}
+            />
+            <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', minWidth: 100, maxWidth: 150 }}>
+              <span style={{ fontSize: 12, fontWeight: 500, color: '#e8ddd8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.title}</span>
+              <span style={{ fontSize: 11, color: '#6b5c60', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.artist}</span>
             </div>
+
+            <button onClick={prev} className="btn-icon" aria-label="anterior" style={{ flexShrink: 0 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zM9.5 12l8.5 6V6z"/></svg>
+            </button>
             <button
               onClick={toggle}
+              aria-label={playing ? 'pausar' : 'tocar'}
               style={{ width: 38, height: 38, borderRadius: '50%', border: 'none', cursor: 'pointer', flexShrink: 0, background: 'linear-gradient(135deg, #c9415a, #7a1230)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 20px rgba(201,65,90,0.35)' }}
             >
               {playing
@@ -878,17 +1200,21 @@ export default function App() {
                 : <svg width="13" height="13" viewBox="0 0 24 24" fill="white" style={{ marginLeft: 2 }}><polygon points="5,3 19,12 5,21"/></svg>
               }
             </button>
+            <button onClick={next} className="btn-icon" aria-label="próxima" style={{ flexShrink: 0 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>
+            </button>
+
             <div style={{ display: 'flex', flex: 1, alignItems: 'center', gap: 10, minWidth: 0 }}>
-              <span style={{ fontSize: 10, color: '#6b5c60', flexShrink: 0 }}>{fmt(currentTime)}</span>
-              <div
-                onClick={onSeek}
-                style={{ flex: 1, height: 3, background: 'rgba(255,255,255,0.1)', borderRadius: 8, cursor: 'pointer', position: 'relative', minWidth: 0 }}
-              >
-                <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${(currentTime / duration) * 100 || 0}%`, background: 'linear-gradient(90deg, #c9415a, #c9a84c)', borderRadius: 8, transition: 'width 0.1s linear' }} />
+              <span style={{ fontSize: 10, color: '#6b5c60', flexShrink: 0 }}>{fmt(position)}</span>
+              <div onClick={onSeek} className="progress-bar-container" style={{ flex: 1, minWidth: 0 }}>
+                <div className="progress-bar-fill" style={{ width: `${duration > 0 ? (position / duration) * 100 : 0}%` }} />
               </div>
               <span style={{ fontSize: 10, color: '#6b5c60', flexShrink: 0 }}>{fmt(duration)}</span>
             </div>
-            <Visualizer playing={playing} bars={16} />
+
+            <div className="hide-mobile">
+              <Visualizer playing={playing} bars={14} />
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600">
+  <defs>
+    <radialGradient id="bg" cx="35%" cy="28%" r="95%">
+      <stop offset="0%" stop-color="#5c0a23"/>
+      <stop offset="55%" stop-color="#2a0512"/>
+      <stop offset="100%" stop-color="#0d0307"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f0d080"/>
+      <stop offset="50%" stop-color="#c9a84c"/>
+      <stop offset="100%" stop-color="#9a7832"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="42%" r="40%">
+      <stop offset="0%" stop-color="#c9415a" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#c9415a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="600" height="600" fill="url(#bg)"/>
+  <rect width="600" height="600" fill="url(#glow)"/>
+
+  <rect x="24" y="24" width="552" height="552" fill="none" stroke="url(#gold)" stroke-width="1.5" opacity="0.85"/>
+  <rect x="34" y="34" width="532" height="532" fill="none" stroke="url(#gold)" stroke-width="0.6" opacity="0.5"/>
+
+  <path d="M300 392 C 224 330 180 274 180 222 A 62 62 0 0 1 300 200 A 62 62 0 0 1 420 222 C 420 274 376 330 300 392 Z"
+        fill="rgba(201,65,90,0.16)" stroke="url(#gold)" stroke-width="2"/>
+
+  <text x="300" y="290" text-anchor="middle"
+        font-family="Georgia, 'Times New Roman', serif" font-style="italic"
+        font-size="56" fill="#f5f0ea">E ♡ H</text>
+
+  <text x="300" y="468" text-anchor="middle"
+        font-family="Georgia, 'Times New Roman', serif" font-style="italic"
+        font-size="40" fill="#f5f0ea">Para a Minha Dragoa</text>
+
+  <line x1="190" y1="496" x2="410" y2="496" stroke="url(#gold)" stroke-width="1" opacity="0.8"/>
+
+  <text x="300" y="528" text-anchor="middle"
+        font-family="Georgia, serif" font-size="15" letter-spacing="6"
+        fill="#c9a84c">NOSSA TRILHA SONORA</text>
+</svg>
